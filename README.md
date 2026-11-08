@@ -13,7 +13,12 @@ copyrights; see [LICENSE](LICENSE).
   remains optional for authenticated servers, downloads and the upstream Java-instance feature.
 - CLI: `horizon-launcher account offline Builder_1`, then `horizon-launcher play`.
 - Launcher self-updates from Horizon are disabled so an upstream update cannot overwrite Corizon.
-  A Windows executable for this fork has not been published yet.
+
+Windows x64 preview: download **Corizon-Launcher-Windows-x64** from the latest successful
+[Corizon Launcher Windows build](https://github.com/klotyzzx/Corizon/actions/workflows/corizon-windows.yml).
+Extract the archive and open `Corizon.exe`. The preview keeps Horizon's default data-folder
+locations. Its executable architecture and local-profile creation are checked on Windows;
+manual GUI and gameplay testing are still needed.
 
 The documentation below describes upstream Horizon; its mandatory-account wording does not
 apply to Corizon's local profiles.

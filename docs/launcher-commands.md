@@ -148,7 +148,7 @@ MCP: `account_list`.
 
 ## `horizon-launcher account sign-in`
 
-Sign in with a Microsoft account in your browser (device code). Play needs one that owns Minecraft: Java Edition.
+Optionally sign in with Microsoft for authenticated servers and Minecraft downloads.
 
     horizon-launcher account sign-in
 
@@ -198,7 +198,7 @@ MCP: `account_select`.
 
 ## `horizon-launcher account offline`
 
-Play offline (LAN, offline-mode servers) beside a signed-in account that owns the game: as NAME (kept to switch back to; 3 to 16 letters, digits or _), or as the name the game made up.
+Play without Microsoft: single player, LAN and offline-mode servers. NAME is kept to switch back to (3 to 16 letters, digits or _); omit it to use the game's generated name.
 
     horizon-launcher account offline [NAME]
 

@@ -53,12 +53,18 @@ impl Launcher {
             Player::Offline(name) => (
                 None,
                 name.clone(),
-                (Tone::Off, tr("Offline · single player and LAN worlds")),
+                (
+                    Tone::Off,
+                    tr("Offline · single player, LAN and offline-mode servers"),
+                ),
             ),
             Player::GameName => (
                 None,
                 self.offline_name.clone().unwrap_or_else(|| "Player".into()),
-                (Tone::Off, tr("Offline · single player and LAN worlds")),
+                (
+                    Tone::Off,
+                    tr("Offline · single player, LAN and offline-mode servers"),
+                ),
             ),
         };
         let head = div()
@@ -199,7 +205,7 @@ impl Launcher {
                     .line_height(px(19.5))
                     .child(tr(
                         "3 to 16 letters, numbers or underscores. Switch names from the top bar \
-                         too. Online servers don't take offline names.",
+                         too. Servers with Microsoft authentication need a signed-in account.",
                     )),
             )
             .children(self.skin_panel(cx).map(|p| p.mt(px(12.))))
@@ -277,7 +283,7 @@ impl Launcher {
             || matches!(self.sign_in_state, Some(SignInState::Done(_)));
         let first = !has_accounts && self.sign_in_target.is_none();
         let heading = if first {
-            tr("Play online with your Microsoft account").to_string()
+            tr("Microsoft account (optional)").to_string()
         } else {
             title
         };

@@ -1,5 +1,5 @@
-//! The owner gate from the outside: with no account that owns Minecraft: Java Edition in the
-//! launcher, neither `horizon-launcher play` nor the MCP server's play starts the game.
+//! Local profiles from the outside: CLI and MCP reach resource preparation without an account.
+//! A missing preparation still prevents starting a broken game.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -35,7 +35,7 @@ fn launcher(root: &Path, args: &[&str]) -> Command {
         .env("HORIZON_TELEMETRY_URL", "off")
         // Memory only: the test never reads the player's keychain.
         .env("HORIZON_NO_KEYCHAIN", "1")
-        .env("HORIZON_MSA_CLIENT_ID", "test-client");
+        .env_remove("HORIZON_MSA_CLIENT_ID");
     cmd
 }
 
@@ -44,13 +44,17 @@ fn text(out: &Output) -> String {
 }
 
 #[test]
-fn the_cli_refuses_to_play_without_an_owner() {
+fn the_cli_reaches_preparation_without_an_owner() {
     let root = home("cli");
     let out = launcher(&root, &["play"]).output().unwrap();
     let said = text(&out);
     assert!(!out.status.success(), "{said}");
-    assert!(said.contains(REFUSED), "{said}");
-    assert!(said.contains("horizon-launcher account sign-in"), "{said}");
+    assert!(said.contains("not prepared yet"), "{said}");
+    assert!(!said.contains(REFUSED), "{said}");
+    assert!(
+        !said.contains("Sign in with `horizon-launcher account sign-in`"),
+        "{said}"
+    );
     // Nothing of the game ran, and the offline name is still there.
     assert!(!root.join("game/sessions").exists());
     let accounts = std::fs::read_to_string(root.join("launcher/accounts.json")).unwrap();
@@ -59,7 +63,7 @@ fn the_cli_refuses_to_play_without_an_owner() {
 }
 
 #[test]
-fn the_mcp_server_refuses_to_play_without_an_owner() {
+fn the_mcp_server_reaches_preparation_without_an_owner() {
     let root = home("mcp");
     let mut child = launcher(&root, &["mcp"])
         .stdin(Stdio::piped())
@@ -84,6 +88,30 @@ fn the_mcp_server_refuses_to_play_without_an_owner() {
         .expect("a reply to play");
     assert_eq!(reply["result"]["isError"], true, "{reply}");
     let said = reply["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(said.contains(REFUSED), "{said}");
+    assert!(said.contains("not prepared yet"), "{said}");
+    assert!(!said.contains(REFUSED), "{said}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn the_cli_creates_and_keeps_a_local_profile_on_a_fresh_install() {
+    let root = home("create-profile");
+    std::fs::remove_file(root.join("launcher/accounts.json")).unwrap();
+    let out = launcher(&root, &["account", "offline", "Builder_2"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out));
+    let saved: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("launcher/accounts.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved["offline_selected"], "Builder_2");
+    assert_eq!(saved["offline"], serde_json::json!(["Builder_2"]));
+    assert!(saved["selected"].is_null());
+    assert_eq!(saved["accounts"], serde_json::json!([]));
+    let out = launcher(&root, &["account", "select", "Builder_2"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out));
     let _ = std::fs::remove_dir_all(&root);
 }

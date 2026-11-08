@@ -696,7 +696,7 @@ impl Launcher {
             .child(keyboard(chip, &t))
             .children(self.glass_account_menu(cx));
 
-        // Signing in with Microsoft, while nobody is: the mockup's button.
+        // Make the local-profile editor available directly from the top bar.
         let sign_in = (!matches!(self.accounts.player(), Player::Microsoft(_))).then(|| {
             keyboard(
                 div()
@@ -711,13 +711,10 @@ impl Launcher {
                     .bg(white(fill::BUTTON))
                     .hover(|s| s.bg(white(fill::BUTTON_HOVER)))
                     .cursor_pointer()
-                    .child(microsoft::logo(16.))
-                    .child(
-                        ui::text(14., FontWeight::MEDIUM, ink::FULL)
-                            .child(tr("Sign in with Microsoft")),
-                    )
+                    .child(blocks::icon("user", 16., white(ink::FULL)))
+                    .child(ui::text(14., FontWeight::MEDIUM, ink::FULL).child(tr("Local profiles")))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.start_sign_in();
+                        this.go(Page::Settings);
                         cx.notify();
                     })),
                 &t,

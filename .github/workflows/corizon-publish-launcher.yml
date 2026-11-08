@@ -1,0 +1,42 @@
+name: Publish Corizon Launcher
+on:
+  push:
+    branches: ['release/corizon-launcher-v0.1.0']
+    paths: ['.github/workflows/corizon-publish-launcher.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: corizon-publish-launcher-v0.1.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'klotyzzx/Corizon'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Download the tested Windows launcher
+        uses: actions/download-artifact@v4
+        with:
+          name: Corizon-Launcher-Windows-x64
+          run-id: 42482011767
+          github-token: ${{ github.token }}
+          path: incoming
+      - name: Check and package only clean distribution files
+        run: python3 tools/package_corizon_release.py
+      - name: Publish preview and upload downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=corizon-launcher-v0.1.0-preview
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target 4547dc321088abc9ec66aec4b751a353cdf64651 --title "Corizon Launcher v0.1.0 Preview — Windows x64" --notes-file packaging/corizon-launcher-release.md --prerelease --draft
+          gh release upload "$tag" dist/Corizon-Launcher-Windows-x64.zip dist/SHA256SUMS --repo "$GITHUB_REPOSITORY"
+          gh release edit "$tag" --draft=false --repo "$GITHUB_REPOSITORY"

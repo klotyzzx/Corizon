@@ -1,0 +1,115 @@
+name: Corizon Game Windows
+
+on:
+  push:
+    branches: [main, 'game/**']
+    paths:
+      - '.github/workflows/corizon-game-windows.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'native-hooks.json'
+      - 'tools/bench_translucency_sort.rs'
+      - 'tools/native-hook-fragments/**'
+      - 'third_party/**'
+      - 'packaging/icons/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corizon-game-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  game-x64:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+      HORIZON_VERSION: 0.1.1-corizon-preview
+      HORIZON_TELEMETRY_URL: 'off'
+      HORIZON_NO_AUDIO: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: corizon-game-windows-x64
+          cache-on-failure: true
+      - name: Test exact transparency ordering
+        run: |
+          rustc --edition=2024 --test crates/horizon-client-render/src/gfx/translucency.rs -o "$env:RUNNER_TEMP/translucency-tests.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
+          & "$env:RUNNER_TEMP/translucency-tests.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Transparency ordering tests failed' }
+      - name: Benchmark baseline and Corizon sorting
+        run: |
+          rustc --edition=2024 -O tools/bench_translucency_sort.rs -o "$env:RUNNER_TEMP/translucency-bench.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Benchmark compilation failed' }
+          & "$env:RUNNER_TEMP/translucency-bench.exe" | Tee-Object -FilePath "$env:RUNNER_TEMP/translucency-benchmark.csv"
+          if ($LASTEXITCODE -ne 0) { throw 'Benchmark or allocation check failed' }
+      - name: Build optimized game
+        run: cargo build --release --locked -p horizon-client --bin horizon-client
+      - name: Check x64 executable
+        run: python tools/check_pe_arch.py x64 target/release/horizon-client.exe
+      - name: Check game startup without loading a world
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'corizon-game-smoke'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          $env:HORIZON_HOME = "$root/logs"
+          $env:HORIZON_LAUNCHER_HOME = "$root/launcher"
+          $env:XDG_DATA_HOME = "$root/data"
+          $env:XDG_CONFIG_HOME = "$root/config"
+          $env:HORIZON_LAUNCHER_NO_SELF_UPDATE = '1'
+          $exe = (Resolve-Path 'target/release/horizon-client.exe').Path
+          $out = Join-Path $root 'help.txt'
+          $process = Start-Process -FilePath $exe -ArgumentList '--help' -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out
+          if ($process.ExitCode -ne 0) { throw "Game help exited with $($process.ExitCode)" }
+          if (-not (Select-String -Path $out -Pattern '--resources' -SimpleMatch -Quiet)) { throw 'Game help is incomplete' }
+      - name: Package importable game build
+        run: |
+          $out = 'dist/Corizon-Game-Windows-x64'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          # The existing launcher's build importer recognizes this binary name.
+          Copy-Item 'target/release/horizon-client.exe' "$out/horizon-client.exe"
+          Copy-Item 'LICENSE', 'THIRD_PARTY_NOTICES.md' $out
+          Copy-Item "$env:RUNNER_TEMP/translucency-benchmark.csv" $out
+          @'
+          Corizon game preview for Windows x64
+
+          Keep using your existing Corizon Launcher.
+          Close the game, then drag this ZIP onto the launcher window and import it.
+          Alternatively use Versions > Import a game build and select horizon-client.exe.
+          The launcher uses your installed Horizon version's resources and selects this build.
+          If preparation is requested, use your existing Minecraft installation.
+          Imported builds are kept separately and are not replaced by upstream updates.
+
+          Window title: Corizon (including loading and additional player windows).
+          Optimization: in-place transparency sorting with exact stable tie ordering.
+          The included CSV is a synthetic CPU microbenchmark, not an FPS benchmark.
+          No Minecraft assets are included. No graphics settings or mechanics are reduced.
+          Source: https://github.com/klotyzzx/Corizon
+          '@ | Set-Content "$out/README.txt" -Encoding utf8
+          @{
+            name = 'Corizon'
+            version = $env:HORIZON_VERSION
+            commit = $env:GITHUB_SHA
+            ref = $env:GITHUB_REF
+          } | ConvertTo-Json | Set-Content "$out/build-info.json" -Encoding utf8
+          $hash = (Get-FileHash "$out/horizon-client.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  horizon-client.exe" | Set-Content "$out/SHA256SUMS" -Encoding ascii
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Corizon-Game-Windows-x64
+          path: dist/Corizon-Game-Windows-x64/
+          if-no-files-found: error
+          retention-days: 30

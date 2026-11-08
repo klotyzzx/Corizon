@@ -3,6 +3,9 @@
 //! `FramerateLimiter`, the vsync present-mode choice and the fullscreen
 //! request/state pair.
 
+/// The fork's game-window name (a product name, independent of translations).
+pub const GAME_TITLE: &str = "Corizon";
+
 /// `Window.calculateScale`: the largest scale that leaves at least 320x240
 /// GUI pixels, capped by `max_scale` (0 = automatic); an odd result is bumped
 /// to even when unicode is enforced.

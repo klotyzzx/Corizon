@@ -45,6 +45,7 @@ jobs:
         with:
           workspaces: launcher
           shared-key: corizon-windows-x64
+          cache-on-failure: true
       - name: Isolate test data
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'corizon-smoke'
@@ -98,10 +99,13 @@ jobs:
           "$hash  Corizon.exe" | Set-Content "$out/SHA256SUMS" -Encoding ascii
       - name: Check packaged executable and offline profile
         run: |
-          & './dist/Corizon-Launcher-Windows-x64/Corizon.exe' --version
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged launcher did not start' }
-          & './dist/Corizon-Launcher-Windows-x64/Corizon.exe' account offline CorizonTest
-          if ($LASTEXITCODE -ne 0) { throw 'Local profile creation failed' }
+          # A Windows GUI-subsystem executable is asynchronous when invoked directly by
+          # PowerShell. Wait for it explicitly before reading its exit code or saved files.
+          $exe = (Resolve-Path './dist/Corizon-Launcher-Windows-x64/Corizon.exe').Path
+          $version = Start-Process -FilePath $exe -ArgumentList '--version' -NoNewWindow -Wait -PassThru
+          if ($version.ExitCode -ne 0) { throw "Packaged launcher exited with $($version.ExitCode)" }
+          $local = Start-Process -FilePath $exe -ArgumentList 'account', 'offline', 'CorizonTest' -NoNewWindow -Wait -PassThru
+          if ($local.ExitCode -ne 0) { throw "Local profile creation exited with $($local.ExitCode)" }
           $profile = Get-Content (Join-Path $env:HORIZON_LAUNCHER_HOME 'accounts.json') -Raw | ConvertFrom-Json
           if ($profile.offline_selected -ne 'CorizonTest' -or $profile.accounts.Count -ne 0) {
             throw 'The packaged launcher did not save an offline-only profile'

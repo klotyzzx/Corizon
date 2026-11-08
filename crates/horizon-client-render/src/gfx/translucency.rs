@@ -8,22 +8,36 @@ pub fn quad_center(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 #[derive(Default)]
 pub struct Sorter {
-    order: Vec<(u32, f32)>,
+    order: Vec<u64>,
     indices: Vec<u32>,
 }
 
 impl Sorter {
     pub fn sort(&mut self, centers: &[[f32; 3]], camera: [f32; 3]) -> &[u32] {
         self.order.clear();
+        let mut already_ordered = true;
+        let mut previous = 0;
         self.order.extend(centers.iter().enumerate().map(|(i, c)| {
             let [x, y, z] = std::array::from_fn(|j| camera[j] - c[j]);
-            (i as u32, x * x + y * y + z * z)
+            let bits = (x * x + y * y + z * z).to_bits();
+            // Map all f32 bit patterns to their total_cmp order, then reverse that order
+            // for back-to-front drawing. The low half preserves input order for ties.
+            let sign = ((bits as i32) >> 31) as u32;
+            let descending = !(bits ^ (sign | 0x8000_0000));
+            let key = (u64::from(descending) << 32) | u64::from(i as u32);
+            already_ordered &= previous <= key;
+            previous = key;
+            key
         }));
-        // VertexSorting uses a stable merge sort, preserving mesh order for ties.
-        self.order.sort_by(|a, b| b.1.total_cmp(&a.1));
+        // VertexSorting preserves mesh order for equal distances. The input is in ascending
+        // quad-index order. Packed keys encode the same stable result while comparing plain
+        // integers, without floating-point comparisons or merge-sort scratch on each resort.
+        if !already_ordered {
+            self.order.sort_unstable();
+        }
         self.indices.clear();
-        for &(quad, _) in &self.order {
-            let v = quad * 4;
+        for &key in &self.order {
+            let v = (key as u32) * 4;
             self.indices.extend([v, v + 1, v + 2, v + 2, v + 3, v]);
         }
         &self.indices
@@ -114,6 +128,77 @@ mod tests {
         let mut sorter = Sorter::default();
         assert_eq!(sorter.sort(&centers, [0.5, 0.5, -2.0])[0], 4);
         assert_eq!(sorter.sort(&centers, [0.5, 0.5, 3.0])[0], 0);
+    }
+
+    #[test]
+    fn in_place_order_matches_stable_reference_across_camera_moves() {
+        let mut centers: Vec<[f32; 3]> = (0..4096)
+            .map(|i| {
+                [
+                    ((i * 37) % 127) as f32 - 63.0,
+                    ((i * 13) % 31) as f32 - 15.0,
+                    ((i * 19) % 127) as f32 - 63.0,
+                ]
+            })
+            .collect();
+        // Repeated centers and non-finite distances exercise the stable tie semantics,
+        // including total_cmp's ordering of infinities and NaN payloads.
+        centers.extend([[1.0; 3]; 64]);
+        centers.extend([
+            [f32::INFINITY, 0.0, 0.0],
+            [f32::NEG_INFINITY, 0.0, 0.0],
+            [f32::from_bits(0x7fc0_0001), 0.0, 0.0],
+            [f32::from_bits(0x7fc0_0002), 0.0, 0.0],
+            [f32::from_bits(0xffc0_0001), 0.0, 0.0],
+            [f32::MAX, 0.0, 0.0],
+            [f32::MIN_POSITIVE, 0.0, 0.0],
+            [-0.0; 3],
+        ]);
+        let mut sorter = Sorter::default();
+        for camera in [[0.0; 3], [0.5, -12.0, 63.0], [-64.0, 15.0, -0.0]] {
+            let mut reference: Vec<_> = centers
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    let dx = camera[0] - c[0];
+                    let dy = camera[1] - c[1];
+                    let dz = camera[2] - c[2];
+                    (i as u32, dx * dx + dy * dy + dz * dz)
+                })
+                .collect();
+            reference.sort_by(|a, b| b.1.total_cmp(&a.1));
+            let expected: Vec<u32> = reference
+                .into_iter()
+                .flat_map(|(quad, _)| {
+                    let v = quad * 4;
+                    [v, v + 1, v + 2, v + 2, v + 3, v]
+                })
+                .collect();
+            assert_eq!(sorter.sort(&centers, camera), expected);
+        }
+    }
+
+    #[test]
+    fn ordered_mesh_keeps_ties_and_resorts_after_the_camera_moves() {
+        let centers = [
+            [3.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ];
+        let mut sorter = Sorter::default();
+        let first: Vec<_> = sorter
+            .sort(&centers, [0.0; 3])
+            .chunks_exact(6)
+            .map(|q| q[0])
+            .collect();
+        assert_eq!(first, [0, 4, 8, 12]);
+        let moved: Vec<_> = sorter
+            .sort(&centers, [100.0, 0.0, 0.0])
+            .chunks_exact(6)
+            .map(|q| q[0])
+            .collect();
+        assert_eq!(moved, [8, 12, 4, 0]);
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! Windows and monitors: which window each player plays in, opening and placing them (a
 //! monitor's over its menu bar), closing them, the views' layout and the windows' titles.
 use super::*;
-use horizon_client::split_layout::Placement;
+use horizon_client::{split_layout::Placement, window::GAME_TITLE};
+use std::borrow::Cow;
 use winit::window::Window;
 
 /// Where a monitor is and its size, as windows are placed: macOS places them in points, each
@@ -454,7 +455,12 @@ impl<'a> Split<'a> {
     }
 
     /// What a window's title says: its name and who plays in it.
-    pub(super) fn title(&self, k: usize) -> String {
+    pub(super) fn title(&self, k: usize) -> Cow<'static, str> {
+        // The normal single-player window needs no names, vector, or formatted string when
+        // its caption is checked again. Only a changed caption is copied into Surface.
+        if self.players() <= 1 && self.surfaces.len() == 1 && self.surfaces[k].key == 1 {
+            return Cow::Borrowed(GAME_TITLE);
+        }
         let views = &self.applied;
         let who: Vec<String> = (0..self.players())
             .filter(|&i| views.get(i).is_some_and(|v| v.0 == k))
@@ -465,9 +471,9 @@ impl<'a> Split<'a> {
             n => format!(" - Window {n}"),
         };
         if self.players() > 1 && !who.is_empty() {
-            format!("Horizon{name} · {}", who.join(", "))
+            Cow::Owned(format!("{GAME_TITLE}{name} · {}", who.join(", ")))
         } else {
-            format!("Horizon{name}")
+            Cow::Owned(format!("{GAME_TITLE}{name}"))
         }
     }
 
@@ -534,7 +540,7 @@ impl<'a> Split<'a> {
                 // Its own title for a moment: `above_menu_bar` finds it by it.
                 Some((at, size)) => {
                     let attributes = attributes
-                        .with_title(format!("Horizon {key}"))
+                        .with_title(format!("{GAME_TITLE} {key}"))
                         .with_decorations(false)
                         .with_position(at)
                         .with_inner_size(size);
@@ -562,7 +568,7 @@ impl<'a> Split<'a> {
                             }
                         }
                     }
-                    .with_title("Horizon")
+                    .with_title(GAME_TITLE)
                 }
             };
             let made = event_loop
@@ -582,7 +588,7 @@ impl<'a> Split<'a> {
                 let _ = window.request_inner_size(size);
                 window.set_outer_position(at);
                 #[cfg(target_os = "macos")]
-                above_menu_bar(&format!("Horizon {key}"));
+                above_menu_bar(&format!("{GAME_TITLE} {key}"));
             }
             match made {
                 Ok((window, compositor)) => {
@@ -621,9 +627,9 @@ impl<'a> Split<'a> {
         }
         for k in 0..self.surfaces.len() {
             let title = self.title(k);
-            if self.surfaces[k].title != title {
-                self.surfaces[k].window.set_title(&title);
-                self.surfaces[k].title = title;
+            if self.surfaces[k].title != title.as_ref() {
+                self.surfaces[k].window.set_title(title.as_ref());
+                self.surfaces[k].title = title.into_owned();
             }
         }
         changed

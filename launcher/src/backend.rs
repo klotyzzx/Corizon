@@ -3553,9 +3553,10 @@ fn launcher_asset_running_from(appimage: bool) -> Option<&'static str> {
     }
 }
 
-/// Development builds and `HORIZON_LAUNCHER_NO_SELF_UPDATE` never replace themselves.
+/// Corizon must not replace its launcher with an upstream Horizon release. Enable updates
+/// again only after Corizon has its own release feed and signing keys.
 pub fn self_update_allowed() -> bool {
-    !cfg!(debug_assertions) && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()
+    false
 }
 
 /// The version in `horizon-launcher --version`'s output (`horizon-launcher 0.1.5`).
@@ -4519,10 +4520,8 @@ pub struct Settings {
     /// An older file's switch for the release profile, read when `native_profile` is unset.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_release: bool,
-    /// Developer options (hidden: seven clicks on the sidebar's launcher version reveal them):
-    /// offline names play without an account that owns the game, in the window only
-    /// (`account::Accounts::play_as_with`, `account::launch_for_game`). Never a download: the game still
-    /// comes from the player's own install. Off by default, and absent from the file while off.
+    /// Legacy setting for authenticated-account fallback. Local profiles always work without
+    /// Microsoft in Corizon, even when this old setting is false or absent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dev_offline: bool,
 }

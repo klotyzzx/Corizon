@@ -1,8 +1,4 @@
-//! Developer options: a Settings section nothing in the window points to. Seven clicks on the
-//! sidebar's "Launcher x.y.z" reveal it for this run; it stays shown while one of its options is
-//! on. Its one option lets offline names play without an account that owns the game
-//! (`backend::Settings::dev_offline`). The game still comes from the player's own install: the
-//! launcher downloads Mojang's files only for an owner (`backend::download_for_owner`).
+//! Legacy developer panel. Local profiles are a standard Corizon feature.
 use super::*;
 
 /// Clicks on the launcher's version that reveal the section.
@@ -22,18 +18,11 @@ impl Launcher {
     }
 
     /// The section, when revealed or when one of its options is on.
-    pub(super) fn dev_options_section(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if !self.dev_options && !self.settings.dev_offline {
+    pub(super) fn dev_options_section(&self, _cx: &mut Context<Self>) -> Option<Div> {
+        if !self.dev_options {
             return None;
         }
         let t = self.theme;
-        let toggle = switch("dev-offline", self.settings.dev_offline, &t).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.settings.dev_offline = !this.settings.dev_offline;
-                this.save_settings();
-                cx.notify();
-            },
-        ));
         Some(
             div()
                 .flex()
@@ -45,16 +34,15 @@ impl Launcher {
                 )
                 .child(index_row(
                     0,
-                    tr("Offline names without an account"),
+                    tr("Local profiles"),
                     Some(
                         div()
                             .child(tr(
-                                "Offline names play without a Microsoft account that owns the game. \
-                                 Minecraft still comes from your own install.",
+                                "Local profiles are always available in Corizon. Prepare Minecraft resources from your own install.",
                             ))
                             .into_any_element(),
                     ),
-                    Some(toggle.into_any_element()),
+                    None,
                     &t,
                 )),
         )

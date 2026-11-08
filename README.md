@@ -1,3 +1,25 @@
+# Corizon
+
+Corizon is a fork of [Horizon](https://github.com/horizon-rust/horizon) with local profiles
+available without Microsoft sign-in. The original project and its contributors retain their
+copyrights; see [LICENSE](LICENSE).
+
+- Choose **Local profiles** in the launcher, enter a name (3–16 ASCII letters, digits or `_`),
+  and press **Add**. Names are saved locally and can be switched from the top bar.
+- Local profiles work in single player, LAN and servers configured with `online-mode=false`.
+  They do not provide a Microsoft session or access to authenticated servers.
+- Prepare the required resources from an installed Minecraft copy before playing. Local
+  profiles do not include Minecraft assets or authorize a Minecraft download. Microsoft sign-in
+  remains optional for authenticated servers, downloads and the upstream Java-instance feature.
+- CLI: `horizon-launcher account offline Builder_1`, then `horizon-launcher play`.
+- Launcher self-updates from Horizon are disabled so an upstream update cannot overwrite Corizon.
+  A Windows executable for this fork has not been published yet.
+
+The documentation below describes upstream Horizon; its mandatory-account wording does not
+apply to Corizon's local profiles.
+
+---
+
 <p align="center">
   <img src="docs/media/banner.webp" alt="Horizon: the game you know, rebuilt in Rust" width="100%">
 </p>

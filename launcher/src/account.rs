@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// The keychain service name every secret is stored under.
 pub const SERVICE: &str = "dev.playhorizon.launcher";
 const SCOPE: &str = "XboxLive.signin offline_access";
-pub const NOT_CONFIGURED: &str = "This build of the launcher has no Microsoft sign-in (HORIZON_MSA_CLIENT_ID), so it can't start the game.";
+pub const NOT_CONFIGURED: &str = "Microsoft sign-in is not configured in this build (HORIZON_MSA_CLIENT_ID). Local profiles can still play.";
 /// What every Play says while no account in the launcher owns the game.
 pub const NEEDS_OWNER: &str =
     "Sign in with a Microsoft account that owns Minecraft: Java Edition to play";
@@ -1718,9 +1718,6 @@ pub enum Player {
     GameName,
 }
 
-const OFFLINE_NEEDS_OWNER: &str =
-    "Offline names need a Microsoft account that owns Minecraft: Java Edition in the launcher.";
-
 /// The secrets an account keeps in `store`, if it still has them there.
 fn secrets_in(store: &dyn SecretStore, uuid: &str) -> Option<Secrets> {
     store
@@ -1818,21 +1815,25 @@ impl Accounts {
         }
     }
 
-    /// Plays as `who`: an account, an offline name (kept, only beside an account that owns the
-    /// game), or the game's own name.
+    /// Plays as `who`: an optional Microsoft account, a local offline profile, or the game's
+    /// own name. Local profiles do not need a Microsoft account in Corizon.
     pub fn play_as(&mut self, store: &dyn SecretStore, who: Player) -> Result<(), String> {
         self.play_as_with(store, who, false)
     }
 
-    /// [`Self::play_as`], where `offline_without_owner` (the window's hidden developer option,
-    /// `backend::Settings::dev_offline`) lets an offline name play without an account that owns
-    /// the game.
+    /// Compatibility with older callers: offline profiles are always available in Corizon,
+    /// regardless of the former developer option.
     pub fn play_as_with(
         &mut self,
-        store: &dyn SecretStore,
+        _store: &dyn SecretStore,
         who: Player,
-        offline_without_owner: bool,
+        _offline_without_owner: bool,
     ) -> Result<(), String> {
+        self.select_player(who)
+    }
+
+    /// Selects a player using only public local profile data; no keychain is initialized.
+    pub fn select_player(&mut self, who: Player) -> Result<(), String> {
         match who {
             Player::Microsoft(uuid) => {
                 if !self.accounts.iter().any(|a| a.uuid == uuid) {
@@ -1841,9 +1842,6 @@ impl Accounts {
                 self.selected = Some(uuid);
             }
             Player::Offline(name) => {
-                if !offline_without_owner && !self.has_owner(store) {
-                    return Err(OFFLINE_NEEDS_OWNER.into());
-                }
                 let name = self.add_offline(&name)?;
                 self.selected = None;
                 self.offline_selected = Some(name);
@@ -2087,10 +2085,10 @@ pub fn launch(
     }
 }
 
-/// The owner gate before the game starts. With the window's hidden developer option
-/// (`backend::Settings::dev_offline`, `offline_without_owner`) no owner is no refusal: the game
-/// starts offline, without a session and without an `owner`. Downloads never come through here:
-/// `backend::download_for_owner` asks [`launch`] itself, so the option never downloads the game.
+/// A local profile starts without contacting Microsoft or reading account secrets. A player
+/// who explicitly selects a Microsoft account still uses its authenticated session. The legacy
+/// developer option only affects that account's fallback; it is not needed for local profiles.
+/// Downloads use the separate owner check in [`launch`].
 pub fn launch_for_game(
     ep: &Endpoints,
     client_id: Option<&str>,
@@ -2098,6 +2096,9 @@ pub fn launch_for_game(
     accounts: &mut Accounts,
     offline_without_owner: bool,
 ) -> Result<Launch, NoOwner> {
+    if accounts.selected().is_none() {
+        return Ok(Launch::default());
+    }
     match launch(ep, client_id, store, accounts) {
         Err(NoOwner { .. }) if offline_without_owner => Ok(Launch::default()),
         pass => pass,
@@ -2344,6 +2345,9 @@ pub fn session_for_game(
     offline_without_owner: bool,
 ) -> Result<GameSession, NoOwner> {
     let mut accounts = Accounts::load();
+    if accounts.selected().is_none() {
+        return Ok(GameSession::default());
+    }
     let pass = launch_for_game(
         &Endpoints::live(),
         client_id().as_deref(),
@@ -2368,6 +2372,10 @@ pub fn session_for_game(
 /// `account select` picked is not touched.
 pub fn session_for_game_as(game_home: &Path, who: &Player) -> Result<GameSession, String> {
     let mut accounts = Accounts::load();
+    if !matches!(who, Player::Microsoft(_)) {
+        accounts.select_player(who.clone())?;
+        return Ok(GameSession::default());
+    }
     let pass = launch_as(
         &Endpoints::live(),
         client_id().as_deref(),
@@ -2403,9 +2411,9 @@ fn launch_as(
         accounts.offline_selected.clone(),
         accounts.offline.clone(),
     );
-    let pass = accounts
-        .play_as(store, who.clone())
-        .and_then(|()| launch(ep, client_id, store, accounts).map_err(|e| e.to_string()));
+    let pass = accounts.play_as(store, who.clone()).and_then(|()| {
+        launch_for_game(ep, client_id, store, accounts, false).map_err(|e| e.to_string())
+    });
     (
         accounts.selected,
         accounts.offline_selected,

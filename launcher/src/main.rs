@@ -779,9 +779,13 @@ impl Launcher {
         // Asking the keychain can block (D-Bus), so not on this thread.
         let accounts = this.accounts.clone();
         std::thread::spawn(move || {
-            let store = account::store();
-            let _ = keychain_tx.send(Msg::Keychain(account::no_keychain()));
-            let _ = keychain_tx.send(Msg::Owner(accounts.has_owner(store)));
+            if accounts.accounts.is_empty() {
+                let _ = keychain_tx.send(Msg::Owner(false));
+            } else {
+                let store = account::store();
+                let _ = keychain_tx.send(Msg::Keychain(account::no_keychain()));
+                let _ = keychain_tx.send(Msg::Owner(accounts.has_owner(store)));
+            }
         });
         std::thread::spawn(move || {
             let reused = backend::reuse_prepared_everywhere();
@@ -1241,10 +1245,6 @@ impl Launcher {
                                 continue;
                             }
                         };
-                        // Past the gate by the developer option alone is no owner.
-                        if !self.settings.dev_offline {
-                            self.owner = Some(true);
-                        }
                         if let Some(file) = file {
                             cmd.arg("--session-file").arg(file);
                         }
@@ -2555,13 +2555,12 @@ fn sign_in_change(shown: &mut Option<SignInState>, next: SignInState) -> Option<
     Some(next)
 }
 
-/// `owner`: whether an account here owns the game, by the keychain (`Launcher::owner`).
-fn play_press(prepared: bool, owner: Option<bool>, busy: bool) -> PlayPress {
-    match (prepared, owner) {
-        _ if busy => PlayPress::Nothing,
-        (true, _) => PlayPress::Play,
-        (false, Some(true)) => PlayPress::PrepareThenPlay,
-        (false, _) => PlayPress::Nothing,
+/// Preparation and running jobs control Play; a local profile never needs an owner check.
+fn play_press(prepared: bool, _owner: Option<bool>, busy: bool) -> PlayPress {
+    match (prepared, busy) {
+        (_, true) => PlayPress::Nothing,
+        (true, false) => PlayPress::Play,
+        (false, false) => PlayPress::PrepareThenPlay,
     }
 }
 
@@ -3415,8 +3414,7 @@ impl Launcher {
         let left = self.download_left();
         let steps = self.preparing.then(|| self.steps(&version, left));
 
-        // Not prepared: an owner can have Horizon download Minecraft from Mojang; without an
-        // owner there is nothing to play, so signing in comes first.
+        // A confirmed owner may download Minecraft. Local profiles prepare from an install.
         let first = (!prepared && !self.preparing)
             .then_some(self.owner_shown())
             .flatten();
@@ -5928,11 +5926,9 @@ mod tests {
         );
     }
 
-    /// An owner's Play works on a version not prepared yet: it prepares it (downloading
-    /// Minecraft from Mojang when this computer has no install), then plays. Without an owner
-    /// it stays off: signing in comes first.
+    /// All profiles can prepare first; running jobs still block duplicate starts.
     #[test]
-    fn play_prepares_first_for_an_owner() {
+    fn play_prepares_first_for_local_and_microsoft_profiles() {
         use super::{play_press, PlayPress};
         assert_eq!(play_press(true, Some(true), false), PlayPress::Play);
         assert_eq!(play_press(true, None, false), PlayPress::Play);
@@ -5940,8 +5936,11 @@ mod tests {
             play_press(false, Some(true), false),
             PlayPress::PrepareThenPlay
         );
-        assert_eq!(play_press(false, Some(false), false), PlayPress::Nothing);
-        assert_eq!(play_press(false, None, false), PlayPress::Nothing);
+        assert_eq!(
+            play_press(false, Some(false), false),
+            PlayPress::PrepareThenPlay
+        );
+        assert_eq!(play_press(false, None, false), PlayPress::PrepareThenPlay);
         assert_eq!(play_press(false, Some(true), true), PlayPress::Nothing);
         assert_eq!(play_press(true, Some(true), true), PlayPress::Nothing);
     }

@@ -189,13 +189,17 @@ mod tests {
         let mut sorter = Sorter::default();
         let first: Vec<_> = sorter
             .sort(&centers, [0.0; 3])
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .map(|q| q[0])
             .collect();
         assert_eq!(first, [0, 4, 8, 12]);
         let moved: Vec<_> = sorter
             .sort(&centers, [100.0, 0.0, 0.0])
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .map(|q| q[0])
             .collect();
         assert_eq!(moved, [8, 12, 4, 0]);

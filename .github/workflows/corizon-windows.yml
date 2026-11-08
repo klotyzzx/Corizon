@@ -1,0 +1,115 @@
+name: Corizon Launcher Windows
+
+on:
+  push:
+    branches: [main, 'corizon/**']
+    paths:
+      - '.github/workflows/corizon-windows.yml'
+      - 'launcher/**'
+      - 'crates/**'
+      - 'packaging/icons/**'
+      - 'tools/check_pe_arch.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corizon-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: Build Corizon Launcher for Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+      # Include the C runtime so the preview needs no Visual C++ redistributable.
+      RUSTFLAGS: -C target-feature=+crt-static
+      HORIZON_LAUNCHER_VERSION: 0.1.0-corizon-preview
+      HORIZON_TELEMETRY_URL: 'off'
+      HORIZON_LAUNCHER_NO_SELF_UPDATE: '1'
+      HORIZON_NO_AUDIO: '1'
+      HORIZON_NO_KEYCHAIN: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+          shared-key: corizon-windows-x64
+      - name: Isolate test data
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'corizon-smoke'
+          @{
+            HORIZON_HOME = "$root/game"
+            HORIZON_LAUNCHER_HOME = "$root/launcher"
+            XDG_DATA_HOME = "$root/data"
+            XDG_CONFIG_HOME = "$root/config"
+            HORIZON_LAUNCHER_TRASH = "$root/trash"
+            HORIZON_LAUNCHER_CLIPBOARD = "$root/clipboard"
+            HORIZON_LAUNCHER_DESKTOP = "$root/desktop"
+          }.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" >> $env:GITHUB_ENV }
+      - name: Test launcher and local profiles
+        working-directory: launcher
+        run: cargo test --release --locked --lib --bin horizon-launcher --test owner_gate
+      - name: Build launcher
+        working-directory: launcher
+        run: cargo build --release --locked --bin horizon-launcher
+      - name: Check Windows x64 executable
+        run: python tools/check_pe_arch.py x64 launcher/target/release/horizon-launcher.exe
+      - name: Package Corizon Launcher
+        run: |
+          $out = 'dist/Corizon-Launcher-Windows-x64'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Copy-Item 'launcher/target/release/horizon-launcher.exe' "$out/Corizon.exe"
+          Copy-Item 'LICENSE', 'THIRD_PARTY_NOTICES.md' $out
+          @'
+          Corizon Launcher - Windows x64 preview
+
+          Extract the entire archive and open Corizon.exe.
+          Choose Local profiles in Settings, enter a nickname, and press Add.
+          Microsoft sign-in is optional for local profiles.
+          Prepare resources from an installed Minecraft copy before playing.
+
+          Single player, LAN and offline-mode servers work with local profiles.
+          Servers that authenticate Minecraft accounts require a signed-in account.
+
+          This preview retains Horizon's default data-folder locations.
+          Launcher self-updates from upstream Horizon are disabled.
+          Source: https://github.com/klotyzzx/Corizon
+          This fork is based on Horizon; original notices are included.
+          '@ | Set-Content "$out/README.txt" -Encoding utf8
+          @{
+            name = 'Corizon Launcher'
+            version = $env:HORIZON_LAUNCHER_VERSION
+            commit = $env:GITHUB_SHA
+            ref = $env:GITHUB_REF
+            run = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          } | ConvertTo-Json | Set-Content "$out/build-info.json" -Encoding utf8
+          $hash = (Get-FileHash "$out/Corizon.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Corizon.exe" | Set-Content "$out/SHA256SUMS" -Encoding ascii
+      - name: Check packaged executable and offline profile
+        run: |
+          & './dist/Corizon-Launcher-Windows-x64/Corizon.exe' --version
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged launcher did not start' }
+          & './dist/Corizon-Launcher-Windows-x64/Corizon.exe' account offline CorizonTest
+          if ($LASTEXITCODE -ne 0) { throw 'Local profile creation failed' }
+          $profile = Get-Content (Join-Path $env:HORIZON_LAUNCHER_HOME 'accounts.json') -Raw | ConvertFrom-Json
+          if ($profile.offline_selected -ne 'CorizonTest' -or $profile.accounts.Count -ne 0) {
+            throw 'The packaged launcher did not save an offline-only profile'
+          }
+      - name: Upload Windows download
+        uses: actions/upload-artifact@v7
+        with:
+          name: Corizon-Launcher-Windows-x64
+          path: dist/Corizon-Launcher-Windows-x64/
+          if-no-files-found: error
+          retention-days: 30
